@@ -1,0 +1,7 @@
+digraph {
+	"[3|3]" [label="[3|3]
+Score: inf"]
+	"Best Move" [label="Best Move: [3|3]
+Score: inf"]
+	"[3|3]" -> "Best Move"
+}
