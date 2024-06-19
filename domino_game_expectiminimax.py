@@ -1,5 +1,6 @@
 import random
 import graphviz
+import copy
 
 class DominoTile:
     def __init__(self, left, right):
@@ -38,18 +39,21 @@ class Player:
         return any(tile.left in (left_end, right_end) or tile.right in (left_end, right_end) for tile in self.tiles)
 
 class AIPlayer(Player):
-    def choose_tile(self, board, opponent_tiles):
-        best_score = float('-inf')
+    def choose_tile(self, board, available_tiles):
         best_tile = None
+        best_score = float('-inf')
         tree = graphviz.Digraph()
+        tree.node("Start", f"Board: {board}\nAI Tiles: {self.tiles}")
+
         print(f"\n{self.name} is thinking...")
 
         for tile in self.get_playable_tiles(board):
             new_board = self.simulate_play(board, tile)
             new_tiles = self.tiles[:]
             new_tiles.remove(tile)
-            score = self.minimax(new_board, new_tiles, opponent_tiles, depth=3, is_maximizing=False, tree=tree, move=str(tile))
-            tree.node(str(tile), f"{tile}\nScore: {score}")
+            score = self.expectiminimax(new_board, new_tiles, available_tiles, depth=3, is_maximizing=False, tree=tree, move=f"Start->{tile}")
+            tree.node(f"Start->{tile}", f"{tile}\nScore: {score}")
+            tree.edge("Start", f"Start->{tile}")
             print(f"Evaluated move {tile} with score {score}")
             if score > best_score:
                 best_score = score
@@ -57,27 +61,44 @@ class AIPlayer(Player):
 
         print(f"AI chose tile {best_tile} with score {best_score}")
         tree.node("Best Move", f"Best Move: {best_tile}\nScore: {best_score}")
-        tree.edge(str(best_tile), "Best Move")
+        tree.edge(f"Start->{best_tile}", "Best Move")
         tree.render('ai_decision_tree', format='png', view=True)
         return best_tile
 
-    def minimax(self, board, ai_tiles, opponent_tiles, depth, is_maximizing, tree, move):
+    def expectiminimax(self, board, ai_tiles, available_tiles, depth, is_maximizing, tree, move):
         if depth == 0 or not ai_tiles:
             return self.evaluate(board, ai_tiles)
 
-        best_score = float('-inf') if is_maximizing else float('inf')
-        current_tiles = ai_tiles if is_maximizing else opponent_tiles
-
-        for tile in self.get_playable_tiles(board, current_tiles):
-            new_board = self.simulate_play(board, tile)
-            new_tiles = current_tiles[:]
-            new_tiles.remove(tile)
-            score = self.minimax(new_board, ai_tiles if not is_maximizing else new_tiles, opponent_tiles if is_maximizing else new_tiles, depth - 1, not is_maximizing, tree, move + ' -> ' + str(tile))
-            best_score = max(best_score, score) if is_maximizing else min(best_score, score)
-            tree.node(move + ' -> ' + str(tile), f"{tile}\nScore: {score}")
-            tree.edge(move, move + ' -> ' + str(tile))
-
-        return best_score
+        if is_maximizing:
+            best_score = float('-inf')
+            for tile in self.get_playable_tiles(board, ai_tiles):
+                new_board = self.simulate_play(board, tile)
+                new_tiles = ai_tiles[:]
+                new_tiles.remove(tile)
+                score = self.expectiminimax(new_board, new_tiles, available_tiles, depth - 1, False, tree, move + f"->{tile}")
+                tree.node(move + f"->{tile}", f"{tile}\nScore: {score}")
+                tree.edge(move, move + f"->{tile}")
+                best_score = max(best_score, score)
+            return best_score
+        else:
+            # Opponent's turn with hidden tiles
+            best_score = float('inf')
+            for tile in available_tiles:
+                new_opponent_tiles = [tile]
+                new_available_tiles = available_tiles[:]
+                new_available_tiles.remove(tile)
+                score = 0
+                playable = False
+                for opp_tile in new_opponent_tiles:
+                    if any(tile.left in (board[0].left, board[-1].right) or tile.right in (board[0].left, board[-1].right) for tile in new_opponent_tiles):
+                        playable = True
+                        new_board = self.simulate_play(board, opp_tile)
+                        new_opponent_tiles.remove(opp_tile)
+                        score = self.expectiminimax(new_board, ai_tiles, new_available_tiles, depth - 1, True, tree, move + f"->Draw {tile}")
+                if not playable:
+                    score = self.expectiminimax(board, ai_tiles, new_available_tiles, depth - 1, True, tree, move + f"->Draw {tile}")
+                best_score = min(best_score, score)
+            return best_score
 
     def get_playable_tiles(self, board, tiles=None):
         if tiles is None:
@@ -152,9 +173,8 @@ def main():
             if isinstance(current_player, HumanPlayer):
                 tile = current_player.choose_tile(board)
             else:
-                opponent = players[(current_player_index + 1) % 2]
                 print(f"AI's tiles: {current_player.tiles}")  # Display AI's tiles
-                tile = current_player.choose_tile(board, opponent.tiles)
+                tile = current_player.choose_tile(board, tiles)
                 print(f"AI plays {tile}")
             current_player.play_tile(tile, board)
         else:
